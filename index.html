@@ -79,11 +79,17 @@ let db,uid,room,roomRef,data;
 const colors=["red","blue","green","yellow"];
 
 async function connect(){
-if(!db){
-firebase.initializeApp(firebaseConfig);
-db=firebase.database();
-let user=await firebase.auth().signInAnonymously();
-uid=user.user.uid;
+  if(!firebase.apps.length){
+    firebase.initializeApp(firebaseConfig);
+  }
+
+  db = firebase.database();
+
+  if(!firebase.auth().currentUser){
+    await firebase.auth().signInAnonymously();
+  }
+
+  uid = firebase.auth().currentUser.uid;
 }
 }
 
@@ -116,17 +122,32 @@ return shuffle(d);
 }
 
 async function createRoom(){
-try{
-await connect();
-room=Math.random().toString(36).slice(2,8).toUpperCase();
-roomRef=db.ref("rooms/"+room);
-await roomRef.set({
-host:uid,
-players:[{id:uid,name:nick()}],
-started:false
-});
-enter();
-}catch(e){msg("연결 오류: "+e.message)}
+  const notice = document.getElementById("notice");
+
+  try{
+    notice.textContent = "방을 만들고 있습니다...";
+
+    await connect();
+
+    room = Math.random().toString(36)
+      .slice(2,8).toUpperCase();
+
+    roomRef = db.ref("rooms/" + room);
+
+    await roomRef.set({
+      host: uid,
+      players: [{id: uid, name: nick()}],
+      started: false
+    });
+
+    notice.textContent = "";
+    enter();
+
+  }catch(e){
+    notice.textContent = "방 생성 실패: " + e.message;
+    console.error(e);
+  }
+}
 }
 
 function nick(){
