@@ -330,3 +330,9 @@ navigator.clipboard.writeText(room).then(()=>msg("방 코드 복사 완료!"));
 </script>
 </body>
 </html>
+
+window.onerror = function(message){
+  alert("자바스크립트 오류: " + message);
+};
+
+alert("UNO 코드 실행 확인!");
