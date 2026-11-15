@@ -1,0 +1,311 @@
+
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>UNO ONLINE</title>
+<style>
+*{box-sizing:border-box}
+body{margin:0;background:#111827;color:white;font-family:Arial,sans-serif;text-align:center;padding:15px}
+h1{font-size:42px;color:#facc15;margin:15px}
+.box{background:#263449;padding:18px;border-radius:18px;margin:15px auto;max-width:650px}
+input{padding:13px;border-radius:10px;border:0;margin:5px;width:90%;max-width:300px}
+button{padding:12px 17px;border:0;border-radius:10px;background:#facc15;font-weight:bold;margin:5px;cursor:pointer}
+button:disabled{opacity:.4}
+.hidden{display:none}
+#players{display:flex;justify-content:center;gap:8px;flex-wrap:wrap}
+.player{padding:9px;background:#111827;border-radius:10px}
+.active{outline:2px solid #facc15}
+#hand{display:flex;justify-content:center;gap:7px;flex-wrap:wrap;margin:20px 0}
+.card{width:62px;height:90px;border:3px solid white;border-radius:12px;color:white;font-size:25px;font-weight:bold;cursor:pointer;box-shadow:0 3px 6px #0008}
+.red{background:#dc2626}.blue{background:#2563eb}
+.green{background:#16a34a}.yellow{background:#eab308;color:#111}
+.wild{background:linear-gradient(135deg,red 25%,yellow 25% 50%,green 50% 75%,blue 75%)}
+#message{color:#fde68a;min-height:25px;font-weight:bold}
+</style>
+</head>
+<body>
+
+<h1>🃏 UNO ONLINE</h1>
+
+<div class="box" id="lobby">
+<h2>친구들과 UNO!</h2>
+<input id="nickname" placeholder="닉네임">
+<br>
+<button onclick="createRoom()">방 만들기</button>
+<br>
+<input id="roomInput" placeholder="방 코드 6자리">
+<button onclick="joinRoom()">방 참가</button>
+<p>최대 4명까지 플레이 가능!</p>
+</div>
+
+<div class="box hidden" id="game">
+<h2>방 코드: <span id="code"></span></h2>
+<button onclick="copyCode()">코드 복사</button>
+<div id="players"></div>
+<p id="message">친구를 기다리는 중...</p>
+<button id="start" onclick="startGame()" class="hidden">게임 시작</button>
+<div id="board" class="hidden">
+<h2>현재 카드</h2>
+<div id="top"></div>
+<h3>현재 색상: <span id="color"></span></h3>
+<h3 id="turn"></h3>
+<p>남은 카드: <span id="count"></span></p>
+<button onclick="drawCard()">카드 뽑기</button>
+<button onclick="callUno()">UNO!</button>
+<h2>내 카드</h2>
+<div id="hand"></div>
+</div>
+</div>
+
+<div id="notice"></div>
+
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js"></script>
+
+<script>
+// Firebase 설정을 나중에 입력하세요.
+const firebaseConfig={
+apiKey:"YOUR_API_KEY",
+authDomain:"YOUR_PROJECT_ID.firebaseapp.com",
+databaseURL:"https://YOUR_PROJECT_ID-default-rtdb.firebaseio.com",
+projectId:"YOUR_PROJECT_ID",
+appId:"YOUR_APP_ID"
+};
+
+let db,uid,room,roomRef,data;
+const colors=["red","blue","green","yellow"];
+
+async function connect(){
+if(!db){
+firebase.initializeApp(firebaseConfig);
+db=firebase.database();
+let user=await firebase.auth().signInAnonymously();
+uid=user.user.uid;
+}
+}
+
+function msg(t){
+document.getElementById("message").textContent=t;
+}
+
+function shuffle(a){
+for(let i=a.length-1;i>0;i--){
+let j=Math.floor(Math.random()*(i+1));
+[a[i],a[j]]=[a[j],a[i]];
+}
+return a;
+}
+
+function makeDeck(){
+let d=[];
+for(let c of colors){
+d.push({c,v:"0"});
+for(let n=1;n<=9;n++)
+for(let i=0;i<2;i++)d.push({c,v:String(n)});
+for(let v of ["+2","SKIP","REV"])
+for(let i=0;i<2;i++)d.push({c,v});
+}
+for(let i=0;i<4;i++){
+d.push({c:"wild",v:"WILD"});
+d.push({c:"wild",v:"+4"});
+}
+return shuffle(d);
+}
+
+async function createRoom(){
+try{
+await connect();
+room=Math.random().toString(36).slice(2,8).toUpperCase();
+roomRef=db.ref("rooms/"+room);
+await roomRef.set({
+host:uid,
+players:[{id:uid,name:nick()}],
+started:false
+});
+enter();
+}catch(e){msg("연결 오류: "+e.message)}
+}
+
+function nick(){
+return document.getElementById("nickname").value.trim()||"플레이어";
+}
+
+async function joinRoom(){
+try{
+await connect();
+room=document.getElementById("roomInput").value.trim().toUpperCase();
+if(room.length!==6){msg("6자리 코드를 입력하세요.");return}
+roomRef=db.ref("rooms/"+room);
+let s=await roomRef.once("value");
+let r=s.val();
+if(!r){msg("방을 찾을 수 없습니다.");return}
+if(r.started||r.players.length>=4){msg("방이 가득 찼거나 시작되었습니다.");return}
+if(!r.players.some(p=>p.id===uid)){
+await roomRef.child("players").set([...r.players,{id:uid,name:nick()}]);
+}
+enter();
+}catch(e){msg("연결 오류: "+e.message)}
+}
+
+function enter(){
+document.getElementById("lobby").classList.add("hidden");
+document.getElementById("game").classList.remove("hidden");
+document.getElementById("code").textContent=room;
+roomRef.on("value",s=>{
+data=s.val();
+if(data)render();
+else msg("방이 종료되었습니다.");
+});
+}
+
+function render(){
+let players=data.players;
+document.getElementById("players").innerHTML=players.map((p,i)=>
+`<div class="player ${data.started&&i===data.turn?'active':''}">
+${p.name} ${data.started?'('+data.hands[p.id].length+'장)':''}
+</div>`).join("");
+
+let host=data.host===uid;
+document.getElementById("start").classList.toggle("hidden",!host||data.started);
+document.getElementById("board").classList.toggle("hidden",!data.started);
+
+if(!data.started){
+msg("친구를 기다리는 중...");
+return;
+}
+
+let me=players.findIndex(p=>p.id===uid);
+let mine=data.hands[uid]||[];
+let current=players[data.turn];
+
+if(data.winner){
+msg(players.find(p=>p.id===data.winner).name+" 승리! 🎉");
+return;
+}
+
+msg(current.id===uid?"당신의 차례입니다!":"친구의 차례입니다.");
+document.getElementById("turn").textContent=current.name+" 차례";
+document.getElementById("count").textContent=data.deck.length+"장";
+document.getElementById("color").textContent=data.color;
+document.getElementById("top").innerHTML=cardHTML(data.discard.at(-1));
+
+document.getElementById("hand").innerHTML=mine.map((c,i)=>{
+let playable=c.c==="wild"||c.c===data.color||c.v===data.discard.at(-1).v;
+return `<button class="card ${c.c}" ${me!==data.turn||!playable?'disabled':''}
+onclick="play(${i})">${c.v}</button>`;
+}).join("");
+}
+
+function cardHTML(c){
+return `<button class="card ${c.c}">${c.v}</button>`;
+}
+
+async function startGame(){
+if(data.players.length<2){msg("2명 이상 모여야 시작할 수 있어요.");return}
+let deck=makeDeck(),hands={};
+data.players.forEach(p=>hands[p.id]=deck.splice(0,7));
+let first=deck.shift();
+while(first.c==="wild"){
+deck.push(first);first=deck.shift();
+}
+await roomRef.update({
+started:true,
+deck:deck,
+hands:hands,
+discard:[first],
+color:first.c,
+turn:0,
+direction:1,
+winner:null,
+uno:{}
+});
+}
+
+function next(r,n=1){
+return (r.turn+r.direction*n+r.players.length*10)%r.players.length;
+}
+
+function take(r,id,n){
+for(let i=0;i<n;i++){
+if(!r.deck.length){
+let top=r.discard.pop();
+r.deck=shuffle(r.discard);
+r.discard=[top];
+}
+if(r.deck.length)r.hands[id].push(r.deck.pop());
+}
+}
+
+async function play(i){
+let selected=data.hands[uid][i];
+let chosen=selected.c;
+
+if(chosen==="wild"){
+chosen=prompt("색깔을 영어로 입력하세요: red, blue, green, yellow");
+if(!colors.includes(chosen))return;
+}
+
+await roomRef.transaction(r=>{
+if(!r||r.players[r.turn].id!==uid||r.winner)return r;
+
+let hand=r.hands[uid];
+let c=hand[i];
+let top=r.discard.at(-1);
+
+if(!(c.c==="wild"||c.c===r.color||c.v===top.v))return r;
+
+hand.splice(i,1);
+r.discard.push(c);
+r.color=chosen;
+
+if(hand.length===0){
+r.winner=uid;
+return r;
+}
+
+let steps=1;
+let target=r.players[next(r)].id;
+
+if(c.v==="SKIP")steps=2;
+if(c.v==="REV"){
+r.direction*=-1;
+if(r.players.length===2)steps=2;
+}
+if(c.v==="+2"){take(r,target,2);steps=2}
+if(c.v==="+4"){take(r,target,4);steps=2}
+
+r.turn=next(r,steps);
+return r;
+});
+}
+
+async function drawCard(){
+await roomRef.transaction(r=>{
+if(!r||r.players[r.turn].id!==uid||r.winner)return r;
+take(r,uid,1);
+r.turn=next(r);
+return r;
+});
+}
+
+async function callUno(){
+await roomRef.transaction(r=>{
+if(!r||r.players[r.turn].id!==uid)return r;
+if(r.hands[uid].length===1){
+r.uno=r.uno||{};
+r.uno[uid]=true;
+}
+return r;
+});
+msg("UNO! 선언!");
+}
+
+function copyCode(){
+navigator.clipboard.writeText(room).then(()=>msg("방 코드 복사 완료!"));
+}
+</script>
+</body>
+</html>
